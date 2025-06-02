@@ -17,25 +17,21 @@ class DroneFleetVisualizer:
         self.no_fly_zones = no_fly_zones
         self.colors = plt.cm.rainbow(np.linspace(0, 1, max(1, len(drones))))
     
-    def plot_environment(self, routes: Dict[int, List[Tuple[float, float]]] = None, title_suffix: str = ""):
+    def plot_environment(self, routes: Dict[int, List[Tuple[float, float]]] = None):
         """Drone rotalarını ve çevreyi görselleştirir"""
         plt.figure(figsize=(12, 8))
         ax = plt.gca()
         
         # No-fly zone
         for zone in self.no_fly_zones:
-            if hasattr(zone, 'coordinates') and zone.coordinates:
-                polygon = plt.Polygon(zone.coordinates, color='red', alpha=0.3, ec='darkred', lw=2, zorder=1)
-                ax.add_patch(polygon)
-                # Calculate centroid for text label
-                center_x = np.mean([c[0] for c in zone.coordinates])
-                center_y = np.mean([c[1] for c in zone.coordinates])
-                plt.text(center_x, center_y, f'No-Fly Zone {zone.id}', ha='center', va='center', fontsize=12, color='darkred', zorder=2)
-            elif hasattr(zone, 'center') and hasattr(zone, 'radius'): # Fallback for old data structure if any
-                circle = plt.Circle(zone.center, zone.radius, color='red', alpha=0.3, ec='darkred', lw=2, zorder=1)
-                ax.add_patch(circle)
-                plt.text(zone.center[0], zone.center[1], f'No-Fly Zone {zone.id}', ha='center', va='center', fontsize=12, color='darkred', zorder=2)
-
+            # Poligon olarak çiz
+            polygon = plt.Polygon(zone.coordinates, color='red', alpha=0.3, ec='darkred', lw=2, zorder=1)
+            ax.add_patch(polygon)
+            # Metni poligonun merkezine yakın bir yere yerleştir (basit ortalama)
+            center_x = sum(p[0] for p in zone.coordinates) / len(zone.coordinates)
+            center_y = sum(p[1] for p in zone.coordinates) / len(zone.coordinates)
+            plt.text(center_x, center_y, f'NFZ {zone.id}', ha='center', va='center', fontsize=10, color='darkred', zorder=2)
+        
         # Teslimat noktaları
         for delivery in self.delivery_points:
             color = 'green' if delivery.is_delivered else 'red'
@@ -59,10 +55,7 @@ class DroneFleetVisualizer:
                         dy = path[j+1, 1] - path[j, 1]
                         plt.arrow(path[j, 0], path[j, 1], dx, dy, color=self.colors[i], shape='full', lw=0, length_includes_head=True, head_width=1.5, head_length=2.5, alpha=0.5, zorder=8)
         
-        main_title = 'Drone Fleet Routes and Environment'
-        if title_suffix:
-            main_title += title_suffix
-        plt.title(main_title, fontsize=16)
+        plt.title('Drone Fleet Routes and Environment', fontsize=16)
         plt.xlabel('X Coordinate', fontsize=13)
         plt.ylabel('Y Coordinate', fontsize=13)
         plt.grid(True)
@@ -190,30 +183,26 @@ class DroneSimulation3D:
         glEnd()
         glPopMatrix()
 
-    def draw_no_fly_zone(self, zone: NoFlyZone): # Changed signature to take NoFlyZone object
-        if hasattr(zone, 'coordinates') and zone.coordinates:
-            # Draw polygon (assuming it's a flat rectangle on the ground plane)
-            glPushMatrix()
-            # No translation needed if coordinates are absolute
-            glColor4f(1.0, 0.0, 0.0, 0.35) # Red, semi-transparent
-            glBegin(GL_POLYGON)
-            for coord in zone.coordinates:
-                glVertex3f(coord[0], 0.01, coord[1]) # y=0.01 to be slightly above grid
-            glEnd()
-            glPopMatrix()
-        elif hasattr(zone, 'center') and hasattr(zone, 'radius'): # Fallback for old circle-based NFZ
-            x, y = zone.center
-            radius = zone.radius
-            glPushMatrix()
-            glTranslatef(x, 0, y)
-            glColor4f(1.0, 0.0, 0.0, 0.35)
-            glBegin(GL_TRIANGLE_FAN)
-            glVertex3f(0, 0.01, 0)
-            for i in range(40):
-                angle = i * (2 * math.pi / 40)
-                glVertex3f(radius * math.cos(angle), 0.01, radius * math.sin(angle))
-            glEnd()
-            glPopMatrix()
+    def draw_no_fly_zone(self, coordinates: List[Tuple[float, float]]): # center ve radius yerine coordinates aldı
+        if not coordinates:
+            return
+        glPushMatrix()
+        # Poligonun zeminini çiz
+        glColor4f(1.0, 0.0, 0.0, 0.2) # Daha şeffaf zemin
+        glBegin(GL_POLYGON)
+        for coord in coordinates:
+            glVertex3f(coord[0], 0.01, coord[1]) # Y zeminden biraz yukarıda
+        glEnd()
+
+        # Poligonun kenarlarını çiz (daha belirgin)
+        glLineWidth(2.0)
+        glColor4f(0.8, 0.0, 0.0, 0.7) # Koyu kırmızı kenarlar
+        glBegin(GL_LINE_LOOP)
+        for coord in coordinates:
+            glVertex3f(coord[0], 0.01, coord[1])
+        glEnd()
+        glLineWidth(1.0)
+        glPopMatrix()
 
     def draw_path(self, path: List[Tuple[float, float]], color: Tuple[float, float, float]):
         if len(path) < 2:
@@ -258,7 +247,7 @@ class DroneSimulation3D:
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
         self.draw_grid()
         for zone in no_fly_zones:
-            self.draw_no_fly_zone(zone) # Pass the whole zone object
+            self.draw_no_fly_zone(zone.coordinates) # zone.coordinates gönderiliyor
         for point in delivery_points:
             color = (0, 1, 0) if point.is_delivered else (1, 1, 0)
             self.draw_delivery_point(point.position, color)
